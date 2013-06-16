@@ -1,6 +1,9 @@
 .data
 output: .asciz "This is %d\n"
 sformat_p: .asciz "%s\n"
+help_info: .asciz "Please specify multiplier and multiplicand. \nmultiplication A B\n"
+multiplier_len: .asciz "multiplier len:%d\n"
+multiplicand_len: .asciz "multiplicand len:%d\n"
 .text
 
 /* dump parameters */
@@ -54,7 +57,43 @@ main:
 	subq $64, %rsp
 	movq %rdi, -56(%rbp)
 	movq %rsi, -48(%rbp)
+	movq $0, -40(%rbp)
+	movq $0, -32(%rbp)
 	call dump_command_line
+
+	jmp normal
+
+invalidpamameter:
+	movq $help_info, %rdi
+	call printf
+	leave
+	ret
+
+normal:
+	cmpq  $3, -56(%rbp)
+	jne invalidpamameter
+
+	/* get multiplier length */
+	movq -48(%rbp), %rax
+	addq $8, %rax
+	movq (%rax), %rdi
+	call strlen
+	movq %rax, -40(%rbp)
+	movq %rax, %rsi
+	movq $multiplier_len, %rdi
+	call printf
+
+	/* get multiplicand length */
+	movq -48(%rbp), %rax
+	addq $16, %rax
+	movq (%rax), %rdi
+	call strlen
+	movq %rax, -40(%rbp)
+	movq %rax, %rsi
+	movq $multiplier_len, %rdi
+	call printf
+
+
 
 	add $64, %rsp
 	pushq $0
