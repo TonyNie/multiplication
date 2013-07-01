@@ -6,7 +6,7 @@ multiplier_len: .asciz "multiplier len:%d\n"
 multiplicand_len: .asciz "multiplicand len:%d\n"
 byte_format: .asciz "%02X"
 hex_prefix: .asciz "0x"
-newline: .asciz "\n"
+newline: .asciz "\n\n"
 
 .text
 
@@ -60,11 +60,13 @@ char_to_num:
 
 lower:
 	subl $'a', %edi
+	addl $10, %edi
 	movl %edi, %eax
 	leave
 	ret
 uppper:
 	subl $'A', %edi
+	addl $10, %edi
 	movl %edi, %eax
 	leave
 	ret
@@ -79,6 +81,8 @@ digit:
 .globl dump_binary_buf
 	.type dump_binary_buf @function
 dump_binary_buf:
+	pushq %r10
+	pushq %r11
 	pushq %rbp
 	movq %rsp, %rbp
 	subq $64, %rsp
@@ -86,12 +90,13 @@ dump_binary_buf:
 	movq %rdi, -64(%rbp)
 	movq %rsi, -56(%rbp)
 	movq %rdi, %r11
-	movq %rsi, %r12
+	movq %rsi, %r10
 
-	cmpq $0, %r12
+	cmpq $0, %r10
 	je .L6
 
 	movq $hex_prefix, %rdi
+	movq $0, %rsi
 	call printf
 
 	jmp .L6
@@ -102,17 +107,24 @@ dump_binary_buf:
 	movb (%r11), %bl
 	movq $0, %rsi
 	movl %ebx, %esi
+	pushq %r10
+	pushq %r11
 	call printf
+	popq %r11
+	popq %r10
 	inc %r11
-	dec %r12
+	dec %r10
 .L6:
-	cmpq $0, %r12
+	cmpq $0, %r10
 	jne .L5
 
 	movq $newline, %rdi
 	call printf
 
-	leave
+	movq %rbp, %rsp
+	popq %rbp
+	popq %r11
+	popq %r10
 	ret
 
 /* transfer parameter from ASCII(hex) to binary code */
@@ -184,7 +196,206 @@ test_sentry:
 	popq %r10
 	ret
 
+/* add_to_product - 
+ @product
+ @product_len
+ @index
+ @addend
+ */
+	.type add_to_product @function
+add_to_product:
+	pushq %r10
+	pushq %r11
+	pushq %rdi
+	pushq %rsi
+	pushq %rdx
+	pushq %rcx
+	pushq %rbp
+	movq %rsp, %rbp
+	subq $64, %rsp
+	movb %cl, -64(%rbp)  /* addend */
 
+	movq 32(%rbp), %r10
+	addq 24(%rbp), %r10
+	dec %r10 /* last byte of product */
+	subq 16(%rbp), %r10 /* index byte */
+
+	movb -64(%rbp), %cl
+	jmp .L_DO_ADD
+
+	.L_ADDTION_OVERFLOW:
+		dec %r10
+		movb $1, %cl
+	.L_DO_ADD:
+		movb (%r10), %bl
+		addb %cl, (%r10)
+		addb %cl, %bl
+		jc .L_ADDTION_OVERFLOW
+
+
+	/* END */
+	movq %rbp, %rsp
+	popq %rbp
+	addq $32, %rsp
+	popq %r11
+	popq %r10
+	ret
+
+/*
+pushfq
+popq %rbx
+movw %ax, -56(%rbp)
+movl %ebx, -64(%rbp)
+andl $0x1, -64(%rbp)
+
+subq %r15, %r8
+addb %al, (%r8)
+pushfq
+popq %rbx
+movl %ebx, -60(%rbp)
+andl $0x1, -60(%rbp)
+jo .L_ADDB_OVERFLOW
+jmp .L_NEXT_BYTE
+
+.L_MULB_OVERFLOW:
+
+.L_ADDB_OVERFLOW:
+/*
+
+
+/* do multiplication
+   @multiplier
+   @multiplier_len
+   @multiplicand
+   @multiplicand_len
+   @product
+   @product_len
+   */
+
+.globl big_multiplication
+	.type big_multiplication @function
+big_multiplication:
+	pushq %r10
+	pushq %r11
+	pushq %rdi
+	pushq %rsi
+	pushq %rdx
+	pushq %rcx
+	pushq %r8
+	pushq %r9
+	pushq %rbp
+	movq %rsp, %rbp
+	subq $64, %rsp
+	movl $0, -64(%rbp) /* multiplication overflow flag */
+	movl $0, -60(%rbp) /* addtion overflow flag */
+	movl $0, -56(%rbp) /* tmp product */
+	movq $0, -48(%rbp) /* current index */
+
+	addq %rsi, %rdi
+	movq %rdi, %r10
+	movq %rsi, %r11
+	dec %r10 /* last byte  of multiplier*/
+
+
+	jmp .L_EX_COND
+
+.L_EX:
+	movq 32(%rbp), %r12
+	movq 24(%rbp), %r13
+	addq %r13, %r12
+	dec %r12 /* last byte of multiplicand */
+
+	movq 16(%rbp), %r8
+	movq 8(%rbp), %r9
+	addq %r9, %r8
+	dec %r8 /* last byte of product */
+
+	.L_IN:
+		movb (%r12), %al
+		mulb (%r10)
+		movw %ax, -56(%rbp)
+
+		/* calc index */
+		movq 40(%rbp), %r14
+		subq %r11, %r14
+		movq 24(%rbp), %r15
+		subq %r13, %r15
+		addq %r14, %r15
+		movq %r15, -48(%rbp)
+
+		/* add AL to product */
+		pushq %r8
+		pushq %r9
+		pushq %r10
+		pushq %r11
+		pushq %r12
+		pushq %r13
+
+		movq 16(%rbp), %rdi
+		movq 8(%rbp), %rsi
+		movq -48(%rbp), %rdx
+		movw -56(%rbp), %ax
+		movq $0, %rcx
+		movb %al, %cl
+		call add_to_product
+		/*movq 16(%rbp), %rdi
+		movq 8(%rbp), %rsi
+		call dump_binary_buf*/
+
+		popq %r13
+		popq %r12
+		popq %r11
+		popq %r10
+		popq %r9
+		popq %r8
+
+		/* add AH to prodeuct */
+		pushq %r8
+		pushq %r9
+		pushq %r10
+		pushq %r11
+		pushq %r12
+		pushq %r13
+
+		movq 16(%rbp), %rdi
+		movq 8(%rbp), %rsi
+		movq -48(%rbp), %rdx
+		addq $1, %rdx
+		movw -56(%rbp), %ax
+		movq $0, %rcx
+		movb %ah, %cl
+		call add_to_product
+		/*movq 16(%rbp), %rdi
+		movq 8(%rbp), %rsi
+		call dump_binary_buf*/
+
+		popq %r13
+		popq %r12
+		popq %r11
+		popq %r10
+		popq %r9
+		popq %r8
+
+		.L_NEXT_BYTE:
+		dec %r13
+		dec %r12
+	.L_IN_COND:
+		cmpq $1, %r13
+		jae .L_IN
+subq $1, %r11
+dec %r10
+.L_EX_COND:
+	cmpq $1, %r11
+	jae .L_EX
+
+
+	/* end */
+	movq %rbp, %rsp
+	popq %rbp
+	addq $48, %rsp
+	popq %r11
+	popq %r10
+	ret
 
 /* transfer binary code to ASCII(hex) */
 /* transfer binary code to ASCII(dec) */
@@ -224,7 +435,7 @@ normal:
 	call strlen
 	shr %rax
 	/* TODO: add 1 only when %rax is odd */
-	addq $1, %rax
+	/* addq $1, %rax */
 	movq %rax, -40(%rbp)
 	movq %rax, %rsi
 	movq $multiplier_len, %rdi
@@ -256,7 +467,7 @@ normal:
 	call strlen
 	shr %rax
 	/* TODO: add 1 only when %rax is odd */
-	addq $1, %rax
+	/* addq $1, %rax */
 	movq %rax, -32(%rbp)
 	movq %rax, %rsi
 	movq $multiplicand_len, %rdi
@@ -289,6 +500,18 @@ normal:
 	movq %rax, -8(%rbp)
 	/* TODO: check alloc memory success */
 
+	movq -24(%rbp), %rdi
+	movq -40(%rbp), %rsi
+	movq -16(%rbp), %rdx
+	movq -32(%rbp), %rcx
+	movq -8(%rbp), %r8
+	movq -64(%rbp), %r9
+	call big_multiplication
+
+	/* dump binary product */
+	movq -8(%rbp), %rdi
+	movq -64(%rbp), %rsi
+	call dump_binary_buf
 
 exit:
 
